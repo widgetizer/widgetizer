@@ -84,6 +84,11 @@
         }
       };
 
+      // ---- AmbiClear tracking ----
+      let lastLockTime = { L: 0, R: 0 };
+      let lastLockRow = { L: -1, R: -1 };
+      let ambiClearRows = [];
+
       // --- UTILITY: Check if tetromino can be at (x, y, rotation) ---
       function canPlace(tetromino, x, y, rotation, otherTetromino) {
         const blocks = TETROMINOES[tetromino.type].blocks[rotation];
@@ -213,7 +218,7 @@
           for (let i = 0; i < 4; i++) {
             const bx = tetromino.x + blocks[i][0];
             const by = tetromino.y + blocks[i][1];
-            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i] };
+            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i], side: tetromino.side, lockTime: Date.now() };
           }
           clearFullLines(tetromino.scene);
           // Check if spawn location is blocked (game over)
@@ -253,7 +258,7 @@
           for (let i = 0; i < 4; i++) {
             const bx = tetromino.x + blocks[i][0];
             const by = tetromino.y + blocks[i][1];
-            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i] };
+            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i], side: tetromino.side, lockTime: Date.now() };
           }
         });
         clearFullLines(t1.scene);
@@ -335,7 +340,8 @@
         for (let i = 0; i < 4; i++) {
           let blockX = (x + shape[i][0]) * BLOCK_SIZE + BLOCK_SIZE/2;
           let blockY = (y + shape[i][1]) * BLOCK_SIZE + BLOCK_SIZE/2;
-          let sprite = scene.add.sprite(blockX, blockY, `block_${type}`);
+          let texKey = `block_${type}_${side}`;
+          let sprite = scene.add.sprite(blockX, blockY, texKey);
           sprite.setDepth(1);
           sprites.push(sprite);
         }
@@ -367,17 +373,56 @@
       let paused = false;
 
       function create() {
-        // Remove all per-type and per-hand dynamic textures
-        // Instead, create a single classic block texture (rectangle with a dark border)
         Object.entries(TETROMINOES).forEach(([type, tet]) => {
-          this.textures.remove(`block_${type}`);
-          let gfx = this.add.graphics();
-          gfx.fillStyle(Phaser.Display.Color.HexStringToColor(tet.color).color, 1);
-          gfx.fillRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
-          gfx.lineStyle(2, 0x222222, 1);
-          gfx.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
-          gfx.generateTexture(`block_${type}`, BLOCK_SIZE, BLOCK_SIZE);
-          gfx.destroy();
+          // Remove any existing textures
+          this.textures.remove(`block_${type}_L`);
+          this.textures.remove(`block_${type}_R`);
+
+          // Aero-glass (left)
+          let gfxL = this.add.graphics();
+          gfxL.fillStyle(Phaser.Display.Color.HexStringToColor(tet.color).color, 1);
+          gfxL.fillRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          // Glassy highlight
+          gfxL.fillStyle(0xffffff, 0.25);
+          gfxL.fillEllipse(BLOCK_SIZE/2, BLOCK_SIZE/3, BLOCK_SIZE*0.8, BLOCK_SIZE*0.5);
+          // Soft shadow
+          gfxL.fillStyle(0x000000, 0.10);
+          gfxL.fillRect(0, BLOCK_SIZE*0.7, BLOCK_SIZE, BLOCK_SIZE*0.3);
+          gfxL.lineStyle(2, 0x222222, 1);
+          gfxL.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          gfxL.generateTexture(`block_${type}_L`, BLOCK_SIZE, BLOCK_SIZE);
+          gfxL.destroy();
+
+          // Bevel (right)
+          let gfxR = this.add.graphics();
+          gfxR.fillStyle(Phaser.Display.Color.HexStringToColor(tet.color).color, 1);
+          gfxR.fillRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          // Top-left highlight
+          gfxR.lineStyle(0);
+          gfxR.fillStyle(0xffffff, 0.28);
+          gfxR.beginPath();
+          gfxR.moveTo(0, 0);
+          gfxR.lineTo(BLOCK_SIZE, 0);
+          gfxR.lineTo(BLOCK_SIZE*0.7, BLOCK_SIZE*0.3);
+          gfxR.lineTo(BLOCK_SIZE*0.3, BLOCK_SIZE*0.3);
+          gfxR.lineTo(0, 0);
+          gfxR.closePath();
+          gfxR.fillPath();
+          // Bottom-right shadow
+          gfxR.fillStyle(0x000000, 0.18);
+          gfxR.beginPath();
+          gfxR.moveTo(BLOCK_SIZE, BLOCK_SIZE);
+          gfxR.lineTo(0, BLOCK_SIZE);
+          gfxR.lineTo(BLOCK_SIZE*0.3, BLOCK_SIZE*0.7);
+          gfxR.lineTo(BLOCK_SIZE*0.7, BLOCK_SIZE*0.7);
+          gfxR.lineTo(BLOCK_SIZE, BLOCK_SIZE);
+          gfxR.closePath();
+          gfxR.fillPath();
+          // Border
+          gfxR.lineStyle(2, 0x222222, 1);
+          gfxR.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          gfxR.generateTexture(`block_${type}_R`, BLOCK_SIZE, BLOCK_SIZE);
+          gfxR.destroy();
         });
 
         cursorsLeft = this.input.keyboard.addKeys({
@@ -498,27 +543,94 @@
       }
 
       function clearFullLines(scene) {
+        // Lock input during animation
+        paused = true;
+        let clearedRows = [];
+        // First, find all full rows
         for (let y = ROWS - 1; y >= 0; y--) {
           if (board[y].every(cell => cell)) {
-            // Destroy all sprites in the cleared row
-            for (let x = 0; x < COLS; x++) {
-              if (board[y][x] && board[y][x].sprite) {
-                board[y][x].sprite.destroy();
+            clearedRows.push(y);
+          }
+        }
+        if (clearedRows.length === 0) {
+          paused = false;
+          return;
+        }
+        // Track ambiClear: was this row filled by both hands within grace period?
+        let isAmbiClear = false;
+        for (let row of clearedRows) {
+          let leftUsed = false, rightUsed = false, leftTime = 0, rightTime = 0;
+          for (let x = 0; x < COLS; x++) {
+            if (board[row][x] && board[row][x].side === 'L') {
+              leftUsed = true; leftTime = Math.max(leftTime, board[row][x].lockTime||0);
+            }
+            if (board[row][x] && board[row][x].side === 'R') {
+              rightUsed = true; rightTime = Math.max(rightTime, board[row][x].lockTime||0);
+            }
+          }
+          if (leftUsed && rightUsed && Math.abs(leftTime - rightTime) < 600) {
+            isAmbiClear = true;
+            ambiClearRows.push(row);
+          }
+        }
+        // Flash effect: make sprites white 2x
+        let flashes = 0;
+        let flashSprites = [];
+        for (let row of clearedRows) {
+          for (let x = 0; x < COLS; x++) {
+            if (board[row][x] && board[row][x].sprite) {
+              flashSprites.push(board[row][x].sprite);
+            }
+          }
+        }
+        function doFlash() {
+          flashes++;
+          flashSprites.forEach(s => s.setTint(0xffffff));
+          scene.time.delayedCall(80, () => {
+            flashSprites.forEach(s => s.clearTint());
+            if (flashes < 2) {
+              scene.time.delayedCall(80, doFlash);
+            } else {
+              doFade();
+            }
+          });
+        }
+        function doFade() {
+          flashSprites.forEach(s => scene.tweens.add({
+            targets: s,
+            alpha: 0,
+            duration: 120,
+            onComplete: () => s.destroy()
+          }));
+          // After fade, drop rows
+          scene.time.delayedCall(140, () => {
+            // Remove rows from board and add nulls at top
+            for (let row of clearedRows) {
+              board.splice(row, 1);
+              board.unshift(Array(COLS).fill(null));
+            }
+            // Animate all sprites above falling
+            let dropTweens = [];
+            for (let y = 0; y < ROWS; y++) {
+              for (let x = 0; x < COLS; x++) {
+                if (board[y][x] && board[y][x].sprite) {
+                  let targetY = y * BLOCK_SIZE + BLOCK_SIZE/2;
+                  if (Math.abs(board[y][x].sprite.y - targetY) > 1) {
+                    dropTweens.push(scene.tweens.add({
+                      targets: board[y][x].sprite,
+                      y: targetY,
+                      duration: 160,
+                      ease: 'Cubic.Out'
+                    }));
+                  }
+                }
               }
             }
-            board.splice(y, 1);
-            board.unshift(Array(COLS).fill(null));
-            y++; // recheck this row since everything moved down
-          }
+            // Resume input after all tweens
+            scene.time.delayedCall(170, () => { paused = false; });
+          });
         }
-        // After all clears, update all sprite y positions to match their row
-        for (let y = 0; y < ROWS; y++) {
-          for (let x = 0; x < COLS; x++) {
-            if (board[y][x] && board[y][x].sprite) {
-              board[y][x].sprite.y = y * BLOCK_SIZE + BLOCK_SIZE/2;
-            }
-          }
-        }
+        doFlash();
       }
     </script>
   </body>
