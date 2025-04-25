@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Ambitetris</title>
+    <style>canvas { display: block; margin: auto; }</style>
+  </head>
+  <body style="background-color: #010101">
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <script>
+      const config = {
+        type: Phaser.AUTO,
+        width: 448, // 14 blocks wide * 32
+        height: 640,
+        backgroundColor: "#111",
+        scene: { create, update }
+      };
+
+      const game = new Phaser.Game(config);
+      const BLOCK_SIZE = 32;
+      const ROWS = 20, COLS = 14;
+      const TETROMINOES = {
+        I: {
+          color: '#08ffff', // light blue
+          blocks: [
+            [[0,1],[1,1],[2,1],[3,1]], // 0 deg
+            [[2,0],[2,1],[2,2],[2,3]], // 90 deg
+            [[0,2],[1,2],[2,2],[3,2]], // 180 deg
+            [[1,0],[1,1],[1,2],[1,3]]  // 270 deg
+          ]
+        },
+        J: {
+          color: '#0000f9', // dark blue
+          blocks: [
+            [[0,0],[0,1],[1,1],[2,1]],
+            [[1,0],[2,0],[1,1],[1,2]],
+            [[0,1],[1,1],[2,1],[2,2]],
+            [[1,0],[1,1],[0,2],[1,2]]
+          ]
+        },
+        L: {
+          color: '#ff9800', // orange 
+          blocks: [
+            [[2,0],[0,1],[1,1],[2,1]],
+            [[1,0],[1,1],[1,2],[2,2]],
+            [[0,1],[1,1],[2,1],[0,2]],
+            [[0,0],[1,0],[1,1],[1,2]]
+          ]
+        },
+        O: {
+          color: '#ffff00', // yellow
+          blocks: [
+            [[1,0],[2,0],[1,1],[2,1]],
+            [[1,0],[2,0],[1,1],[2,1]],
+            [[1,0],[2,0],[1,1],[2,1]],
+            [[1,0],[2,0],[1,1],[2,1]]
+          ]
+        },
+        T: {
+          color: '#a000f9', // purple
+          blocks: [
+            [[1,0],[0,1],[1,1],[2,1]],
+            [[1,0],[1,1],[2,1],[1,2]],
+            [[0,1],[1,1],[2,1],[1,2]],
+            [[1,0],[0,1],[1,1],[1,2]]
+          ]
+        },
+        S: {
+          color: '#ff0000', // red
+          blocks: [
+            [[1,0],[2,0],[0,1],[1,1]],
+            [[1,0],[1,1],[2,1],[2,2]],
+            [[1,1],[2,1],[0,2],[1,2]],
+            [[0,0],[0,1],[1,1],[1,2]]
+          ]
+        },
+        Z: {
+          color: '#00c000', // green
+          blocks: [
+            [[0,0],[1,0],[1,1],[2,1]],
+            [[2,0],[1,1],[2,1],[1,2]],
+            [[0,1],[1,1],[1,2],[2,2]],
+            [[1,0],[0,1],[1,1],[0,2]]
+          ]
+        }
+      };
+
+      // --- UTILITY: Check if tetromino can be at (x, y, rotation) ---
+      function canPlace(tetromino, x, y, rotation, otherTetromino) {
+        const blocks = TETROMINOES[tetromino.type].blocks[rotation];
+        for (let i = 0; i < 4; i++) {
+          const bx = x + blocks[i][0];
+          const by = y + blocks[i][1];
+          if (bx < 0 || bx >= COLS || by < 0 || by >= ROWS) return false;
+          if (board[by][bx]) return false;
+          // Check against other falling tetromino
+          if (otherTetromino) {
+            const otherBlocks = TETROMINOES[otherTetromino.type].blocks[otherTetromino.rotation];
+            for (let j = 0; j < 4; j++) {
+              const obx = otherTetromino.x + otherBlocks[j][0];
+              const oby = otherTetromino.y + otherBlocks[j][1];
+              if (bx === obx && by === oby) return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      function moveTetromino(tetromino, dx) {
+        const otherTetromino = tetromino.side === 'L' ? window.rightTetromino : window.leftTetromino;
+        const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+        let canMove = true, blockedByOther = false;
+        for (let i = 0; i < 4; i++) {
+          const bx = tetromino.x + blocks[i][0] + dx;
+          const by = tetromino.y + blocks[i][1];
+          if (bx < 0 || bx >= COLS || (by >= 0 && board[by][bx])) {
+            canMove = false;
+            break;
+          }
+          // Check for collision with other falling tetromino
+          for (let j = 0; j < 4; j++) {
+            if (
+              bx === otherTetromino.x + TETROMINOES[otherTetromino.type].blocks[otherTetromino.rotation][j][0] &&
+              by === otherTetromino.y + TETROMINOES[otherTetromino.type].blocks[otherTetromino.rotation][j][1]
+            ) {
+              blockedByOther = true;
+              break;
+            }
+          }
+          if (blockedByOther) break;
+        }
+        if (canMove && !blockedByOther) {
+          tetromino.x += dx;
+          updateTetrominoSprites(tetromino);
+        } else if (blockedByOther) {
+          // --- Mash-off logic ---
+          // Check if other tetromino is trying to move into this one (opposite direction)
+          let otherMoveIntent = 0;
+          if (otherTetromino.side === 'L') {
+            // leftKeysHeld.right (right move intent for left block)
+            otherMoveIntent = leftKeysHeld.right ? 1 : (leftKeysHeld.left ? -1 : 0);
+          } else {
+            // cursorsRight.right.isDown (right move intent for right block)
+            otherMoveIntent = cursorsRight.right.isDown ? 1 : (cursorsRight.left.isDown ? -1 : 0);
+          }
+          if (otherMoveIntent === -dx) {
+            // Mash-off: both trying to push into each other, block both
+            return;
+          }
+          // Try to push the other tetromino in the same direction
+          let pushed = tryPushOtherHorizontally(otherTetromino, dx);
+          if (pushed) {
+            tetromino.x += dx;
+            updateTetrominoSprites(tetromino);
+          }
+          // else: can't move, blocked
+        }
+      }
+
+      function tryPushOtherHorizontally(tetromino, dx) {
+        const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+        for (let i = 0; i < 4; i++) {
+          const bx = tetromino.x + blocks[i][0] + dx;
+          const by = tetromino.y + blocks[i][1];
+          if (bx < 0 || bx >= COLS || (by >= 0 && board[by][bx])) {
+            return false; // Blocked by wall or landed block
+          }
+        }
+        tetromino.x += dx;
+        updateTetrominoSprites(tetromino);
+        return true;
+      }
+
+      function moveDown(tetromino, side) {
+        // Always use current falling tetrominoes
+        const otherTetromino = side === 'L' ? window.rightTetromino : window.leftTetromino;
+        let newY = tetromino.y + 1;
+        const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+        let blockedByBoard = false, blockedByOther = false;
+        for (let i = 0; i < 4; i++) {
+          const bx = tetromino.x + blocks[i][0];
+          const by = tetromino.y + blocks[i][1] + 1;
+          if (by >= ROWS || (by >= 0 && board[by][bx])) {
+            blockedByBoard = true;
+            break;
+          }
+          // Check for collision with other falling tetromino
+          for (let j = 0; j < 4; j++) {
+            if (
+              bx === otherTetromino.x + TETROMINOES[otherTetromino.type].blocks[otherTetromino.rotation][j][0] &&
+              by === otherTetromino.y + TETROMINOES[otherTetromino.type].blocks[otherTetromino.rotation][j][1]
+            ) {
+              blockedByOther = true;
+              break;
+            }
+          }
+          if (blockedByOther) break;
+        }
+        if (!blockedByBoard && !blockedByOther) {
+          tetromino.y = newY;
+          updateTetrominoSprites(tetromino);
+        } else if (blockedByOther) {
+          // Try to push the other tetromino down
+          let pushed = tryPushOtherDown(otherTetromino, side === 'L' ? 'R' : 'L');
+          if (pushed) {
+            tetromino.y = newY;
+            updateTetrominoSprites(tetromino);
+          } else {
+            // Cannot push: lock both tetrominoes
+            lockBothTetrominoes(tetromino, otherTetromino);
+          }
+        } else {
+          // LAND: Place blocks in board and leave sprites
+          for (let i = 0; i < 4; i++) {
+            const bx = tetromino.x + blocks[i][0];
+            const by = tetromino.y + blocks[i][1];
+            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i] };
+          }
+          clearFullLines(tetromino.scene);
+          // Check if spawn location is blocked (game over)
+          let spawnX = side === 'L' ? 4 : 9;
+          let spawnY = 0;
+          let newTet = spawnTetromino(tetromino.scene, side);
+          const otherTet = side === 'L' ? window.rightTetromino : window.leftTetromino;
+          if (!canPlace(newTet, spawnX, spawnY, 0, otherTet)) {
+            alert('Game Over!');
+            location.reload();
+            return;
+          }
+          if (side === 'L') window.leftTetromino = newTet;
+          else window.rightTetromino = newTet;
+        }
+      }
+
+      function tryPushOtherDown(tetromino, side) {
+        // Attempt to move the other tetromino down by 1
+        const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+        for (let i = 0; i < 4; i++) {
+          const bx = tetromino.x + blocks[i][0];
+          const by = tetromino.y + blocks[i][1] + 1;
+          if (by >= ROWS || (by >= 0 && board[by][bx])) {
+            return false; // Blocked by landed block or bottom
+          }
+        }
+        tetromino.y += 1;
+        updateTetrominoSprites(tetromino);
+        return true;
+      }
+
+      function lockBothTetrominoes(t1, t2) {
+        // Place both tetrominoes in the board
+        [t1, t2].forEach(tetromino => {
+          const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+          for (let i = 0; i < 4; i++) {
+            const bx = tetromino.x + blocks[i][0];
+            const by = tetromino.y + blocks[i][1];
+            board[by][bx] = { type: tetromino.type, sprite: tetromino.sprites[i] };
+          }
+        });
+        clearFullLines(t1.scene);
+        // Spawn new tetrominoes for both sides
+        let newLeft = spawnTetromino(t1.scene, 'L');
+        let newRight = spawnTetromino(t2.scene, 'R');
+        window.leftTetromino = newLeft;
+        window.rightTetromino = newRight;
+        // Check if either spawn location is blocked (game over)
+        if (!canPlace(newLeft, 4, 0, 0, newRight) || !canPlace(newRight, 9, 0, 0, newLeft)) {
+          alert('Game Over!');
+          location.reload();
+        }
+      }
+
+      function updateTetrominoSprites(tetromino) {
+        const blocks = TETROMINOES[tetromino.type].blocks[tetromino.rotation];
+        tetromino.blocks = blocks;
+        for (let i = 0; i < 4; i++) {
+          const gx = tetromino.x + blocks[i][0];
+          const gy = tetromino.y + blocks[i][1];
+          tetromino.sprites[i].x = gx * BLOCK_SIZE + BLOCK_SIZE/2;
+          tetromino.sprites[i].y = gy * BLOCK_SIZE + BLOCK_SIZE/2;
+        }
+      }
+
+      function rotateTetromino(tetromino) {
+        const oldRotation = tetromino.rotation;
+        const newRotation = (tetromino.rotation + 1) % 4;
+        const otherTetromino = tetromino.side === 'L' ? window.rightTetromino : window.leftTetromino;
+        // Try in-place rotation
+        if (canPlace(tetromino, tetromino.x, tetromino.y, newRotation, otherTetromino)) {
+          tetromino.rotation = newRotation;
+          updateTetrominoSprites(tetromino);
+          return;
+        }
+        // Try wall kicks: shift left or right by 1
+        if (canPlace(tetromino, tetromino.x - 1, tetromino.y, newRotation, otherTetromino)) {
+          tetromino.x -= 1;
+          tetromino.rotation = newRotation;
+          updateTetrominoSprites(tetromino);
+          return;
+        }
+        if (canPlace(tetromino, tetromino.x + 1, tetromino.y, newRotation, otherTetromino)) {
+          tetromino.x += 1;
+          tetromino.rotation = newRotation;
+          updateTetrominoSprites(tetromino);
+          return;
+        }
+        // Optionally: Try kicks by 2 (for I piece, SRS style)
+        if (TETROMINOES[tetromino.type].blocks.length === 4) {
+          if (canPlace(tetromino, tetromino.x - 2, tetromino.y, newRotation, otherTetromino)) {
+            tetromino.x -= 2;
+            tetromino.rotation = newRotation;
+            updateTetrominoSprites(tetromino);
+            return;
+          }
+          if (canPlace(tetromino, tetromino.x + 2, tetromino.y, newRotation, otherTetromino)) {
+            tetromino.x += 2;
+            tetromino.rotation = newRotation;
+            updateTetrominoSprites(tetromino);
+            return;
+          }
+        }
+        // If all fail, do not rotate
+      }
+
+      function spawnTetromino(scene, side) {
+        const types = Object.keys(TETROMINOES);
+        const type = types[Math.floor(Math.random() * types.length)];
+        const tet = TETROMINOES[type];
+        const rotation = 0;
+        const x = side === 'L' ? 4 : 9; // grid coordinate
+        const y = 0;
+        const color = tet.color;
+        const shape = tet.blocks[rotation];
+        // Create sprites for each block
+        const sprites = [];
+        for (let i = 0; i < 4; i++) {
+          let blockX = (x + shape[i][0]) * BLOCK_SIZE + BLOCK_SIZE/2;
+          let blockY = (y + shape[i][1]) * BLOCK_SIZE + BLOCK_SIZE/2;
+          let sprite = scene.add.sprite(blockX, blockY, `block_${type}`);
+          sprite.setDepth(1);
+          sprites.push(sprite);
+        }
+        return {
+          type, color, rotation, x, y, blocks: shape, sprites, side, scene
+        };
+      }
+
+      let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      let cursorsLeft, cursorsRight;
+      let leftTetromino, rightTetromino;
+      let dropTimerLeft = 0, dropTimerRight = 0;
+
+      // For fast drop
+      let fastDropLeft = false, fastDropRight = false;
+
+      // Timers for auto-repeat movement
+      let moveTimers = {
+        left: { left: 0, right: 0 }, // left block: left/right
+        right: { left: 0, right: 0 }, // right block: left/right
+        down: { left: 0, right: 0 } // left/right block: down
+      };
+      const INITIAL_DELAY = 200; // ms before repeat starts
+      const REPEAT_INTERVAL = 40; // ms between repeats
+
+      // Manual key state tracking for left block controls
+      let leftKeysHeld = { left: false, right: false, down: false };
+
+      let paused = false;
+
+      function create() {
+        // Remove all per-type and per-hand dynamic textures
+        // Instead, create a single classic block texture (rectangle with a dark border)
+        Object.entries(TETROMINOES).forEach(([type, tet]) => {
+          this.textures.remove(`block_${type}`);
+          let gfx = this.add.graphics();
+          gfx.fillStyle(Phaser.Display.Color.HexStringToColor(tet.color).color, 1);
+          gfx.fillRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          gfx.lineStyle(2, 0x222222, 1);
+          gfx.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+          gfx.generateTexture(`block_${type}`, BLOCK_SIZE, BLOCK_SIZE);
+          gfx.destroy();
+        });
+
+        cursorsLeft = this.input.keyboard.addKeys({
+          left: 'C', right: 'B', down: 'V', rotate: 'G'
+        });
+        cursorsRight = this.input.keyboard.addKeys({
+          left: 'J', right: 'L', down: 'K', rotate: 'I'
+        });
+
+        // Prevent browser default for control keys
+        this.input.keyboard.on('keydown', function (event) {
+          if (["C","B","V","F","J","L","K","I"].includes(event.key.toUpperCase())) {
+            event.preventDefault();
+          }
+        });
+
+        // Track keydown/up for left block (new keys)
+        this.input.keyboard.on('keydown-C', () => { leftKeysHeld.left = true; });
+        this.input.keyboard.on('keyup-C', () => { leftKeysHeld.left = false; });
+        this.input.keyboard.on('keydown-B', () => { leftKeysHeld.right = true; });
+        this.input.keyboard.on('keyup-B', () => { leftKeysHeld.right = false; });
+        this.input.keyboard.on('keydown-V', () => { leftKeysHeld.down = true; });
+        this.input.keyboard.on('keyup-V', () => { leftKeysHeld.down = false; });
+
+        // Pause/resume with space bar
+        this.input.keyboard.on('keydown-SPACE', () => {
+          paused = !paused;
+          console.log(paused ? 'Paused' : 'Unpaused');
+        });
+
+        leftTetromino = spawnTetromino(this, 'L');
+        rightTetromino = spawnTetromino(this, 'R');
+        window.leftTetromino = leftTetromino;
+        window.rightTetromino = rightTetromino;
+      }
+
+      function update(time, delta) {
+        if (paused) return;
+
+        // Always use global references to current tetrominoes
+        const leftTetromino = window.leftTetromino;
+        const rightTetromino = window.rightTetromino;
+
+        handleInput(this, delta);
+
+        dropTimerLeft += delta;
+        dropTimerRight += delta;
+
+        let leftInterval = fastDropLeft ? 40 : 500;
+        let rightInterval = fastDropRight ? 40 : 500;
+
+        if (dropTimerLeft > leftInterval) {
+          moveDown(leftTetromino, 'L');
+          dropTimerLeft = 0;
+        }
+        if (dropTimerRight > rightInterval) {
+          moveDown(rightTetromino, 'R');
+          dropTimerRight = 0;
+        }
+      }
+
+      function handleInput(scene, delta) {
+        // Always use the current falling tetrominoes
+        const leftTetromino = window.leftTetromino;
+        const rightTetromino = window.rightTetromino;
+
+        // LEFT BLOCK CONTROLS
+        if (leftKeysHeld.left) {
+          moveTimers.left.left += delta;
+          if (moveTimers.left.left === delta || moveTimers.left.left > INITIAL_DELAY) {
+            moveTetromino(leftTetromino, -1);
+            if (moveTimers.left.left > INITIAL_DELAY) moveTimers.left.left -= REPEAT_INTERVAL;
+          }
+        } else {
+          moveTimers.left.left = 0;
+        }
+        if (leftKeysHeld.right) {
+          moveTimers.left.right += delta;
+          if (moveTimers.left.right === delta || moveTimers.left.right > INITIAL_DELAY) {
+            moveTetromino(leftTetromino, 1);
+            if (moveTimers.left.right > INITIAL_DELAY) moveTimers.left.right -= REPEAT_INTERVAL;
+          }
+        } else {
+          moveTimers.left.right = 0;
+        }
+        fastDropLeft = leftKeysHeld.down;
+
+        if (cursorsLeft.rotate.isDown) {
+          rotateTetromino(leftTetromino);
+          cursorsLeft.rotate.reset(); // single rotate per press
+        }
+
+        // RIGHT BLOCK CONTROLS
+        if (cursorsRight.left.isDown) {
+          moveTimers.right.left += delta;
+          if (moveTimers.right.left === delta || moveTimers.right.left > INITIAL_DELAY) {
+            moveTetromino(rightTetromino, -1);
+            if (moveTimers.right.left > INITIAL_DELAY) moveTimers.right.left -= REPEAT_INTERVAL;
+          }
+        } else {
+          moveTimers.right.left = 0;
+        }
+        if (cursorsRight.right.isDown) {
+          moveTimers.right.right += delta;
+          if (moveTimers.right.right === delta || moveTimers.right.right > INITIAL_DELAY) {
+            moveTetromino(rightTetromino, 1);
+            if (moveTimers.right.right > INITIAL_DELAY) moveTimers.right.right -= REPEAT_INTERVAL;
+          }
+        } else {
+          moveTimers.right.right = 0;
+        }
+        fastDropRight = cursorsRight.down.isDown;
+        // Rotation for right block (I key)
+        if (cursorsRight.rotate.isDown) {
+          rotateTetromino(rightTetromino);
+          cursorsRight.rotate.reset(); // single rotate per press
+        }
+      }
+
+      function clearFullLines(scene) {
+        for (let y = ROWS - 1; y >= 0; y--) {
+          if (board[y].every(cell => cell)) {
+            // Destroy all sprites in the cleared row
+            for (let x = 0; x < COLS; x++) {
+              if (board[y][x] && board[y][x].sprite) {
+                board[y][x].sprite.destroy();
+              }
+            }
+            board.splice(y, 1);
+            board.unshift(Array(COLS).fill(null));
+            y++; // recheck this row since everything moved down
+          }
+        }
+        // After all clears, update all sprite y positions to match their row
+        for (let y = 0; y < ROWS; y++) {
+          for (let x = 0; x < COLS; x++) {
+            if (board[y][x] && board[y][x].sprite) {
+              board[y][x].sprite.y = y * BLOCK_SIZE + BLOCK_SIZE/2;
+            }
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
