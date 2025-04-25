@@ -425,6 +425,14 @@
           gfxR.destroy();
         });
 
+        // Create a white 1x1 'particle' texture if missing
+        if (!this.textures.exists('particle')) {
+          let canvas = this.textures.createCanvas('particle', 1, 1).getContext('2d');
+          canvas.fillStyle = '#fff';
+          canvas.fillRect(0, 0, 1, 1);
+          this.textures.get('particle').refresh();
+        }
+
         cursorsLeft = this.input.keyboard.addKeys({
           left: 'C', right: 'B', down: 'V', rotate: 'G'
         });
@@ -602,9 +610,30 @@
             duration: 120,
             onComplete: () => s.destroy()
           }));
+          // Particle burst for each cleared block
+          for (let row of clearedRows) {
+            for (let x = 0; x < COLS; x++) {
+              if (board[row][x] && board[row][x].sprite) {
+                const color = TETROMINOES[board[row][x].type].color;
+                const px = x * BLOCK_SIZE + BLOCK_SIZE/2;
+                const py = row * BLOCK_SIZE + BLOCK_SIZE/2;
+                const emitter = scene.add.particles(px, py, 'particle', {
+                  tint: Phaser.Display.Color.HexStringToColor(color).color,
+                  speed: { min: 40, max: 120 },
+                  angle: { min: 200, max: 340 },
+                  lifespan: 300,
+                  quantity: 12,
+                  scale: { start: 0.5, end: 0 },
+                  alpha: { start: 1, end: 0 },
+                  blendMode: 'ADD',
+                  gravityY: 200
+                });
+                scene.time.delayedCall(350, () => emitter.destroy());
+              }
+            }
+          }
           // After fade, drop rows
           scene.time.delayedCall(140, () => {
-            // Remove rows from board and add nulls at top
             for (let row of clearedRows) {
               board.splice(row, 1);
               board.unshift(Array(COLS).fill(null));
@@ -626,7 +655,6 @@
                 }
               }
             }
-            // Resume input after all tweens
             scene.time.delayedCall(170, () => { paused = false; });
           });
         }
