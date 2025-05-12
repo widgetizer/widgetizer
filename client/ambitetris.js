@@ -71,8 +71,56 @@ let lastLockTime = { L: 0, R: 0 };
 let lastLockRow = { L: -1, R: -1 };
 let ambiClearRows = [];
 
-
-// --- UTILITY: Check if tetromino can be at (x, y, rotation) ---
+//
+// --- Core Tetromino Logic Functions ---
+//
+// The following section contains the fundamental functions that govern
+// the behavior of tetrominoes within the game. This includes:
+//
+// - `canPlace`: Determining if a tetromino can be placed at a given
+//   position and rotation without collision.
+// - Movement functions (`moveTetromino`, `moveDown`): Handling horizontal
+//   and vertical movement, including interactions with other pieces.
+// - Rotation (`rotateTetromino`): Managing tetromino rotation, including
+//   wall kicks.
+// - Spawning (`spawnTetromino`, `spawnGhostTetromino`): Creating new
+//   tetrominoes and their ghost counterparts.
+// - Locking (`lockBothTetrominoes`): Finalizing the position of
+//   tetrominoes on the board.
+// - Board manipulation (`clearFullLines`): Clearing completed lines
+//   and handling associated animations and scoring implications.
+// - Sprite updates (`updateTetrominoSprites`, `updateGhostTetromino`):
+//   Ensuring the visual representation of tetrominoes matches their
+//   logical state.
+//
+// These functions are crucial for the interactive gameplay loop,
+// responding to player input and managing the game state.
+//{{REWRITTEN_CODE}}
+//
+// --- Core Tetromino Logic Functions ---
+//
+// The following section contains the fundamental functions that govern
+// the behavior of tetrominoes within the game. This includes:
+//
+// - `canPlace`: Determining if a tetromino can be placed at a given
+//   position and rotation without collision.
+// - Movement functions (`moveTetromino`, `moveDown`): Handling horizontal
+//   and vertical movement, including interactions with other pieces.
+// - Rotation (`rotateTetromino`): Managing tetromino rotation, including
+//   wall kicks.
+// - Spawning (`spawnTetromino`, `spawnGhostTetromino`): Creating new
+//   tetrominoes and their ghost counterparts.
+// - Locking (`lockBothTetrominoes`): Finalizing the position of
+//   tetrominoes on the board.
+// - Board manipulation (`clearFullLines`): Clearing completed lines
+//   and handling associated animations and scoring implications.
+// - Sprite updates (`updateTetrominoSprites`, `updateGhostTetromino`):
+//   Ensuring the visual representation of tetrominoes matches their
+//   logical state.
+//
+// These functions are crucial for the interactive gameplay loop,
+// responding to player input and managing the game state.
+//
 function canPlace(tetromino, x, y, rotation, otherTetromino) {
   const blocks = TETROMINOES[tetromino.type].blocks[rotation];
   for (let i = 0; i < 4; i++) {
@@ -429,6 +477,7 @@ const REPEAT_INTERVAL = 40;
 
 let leftKeysHeld = { left: false, right: false, down: false };
 let paused = false;
+let userPaused = false;
 
 function create() {
   Object.entries(TETROMINOES).forEach(([type, tet]) => {
@@ -503,8 +552,9 @@ function create() {
   this.input.keyboard.on('keyup-V', () => { leftKeysHeld.down = false; });
 
   this.input.keyboard.on('keydown-SPACE', () => {
-    paused = !paused;
-    console.log(paused ? 'Paused' : 'Unpaused');
+    userPaused = !userPaused;
+    console.log(userPaused ? 'Game Paused' : 'Game Unpaused');
+    // If pausing, maybe visually indicate pause on screen if desired later
   });
 
   leftTetromino = spawnTetromino(this, 'L');
@@ -520,7 +570,7 @@ function create() {
 }
 
 function update(time, delta) {
-  if (paused) return;
+  if (userPaused) return;
 
   const leftTetromino = window.leftTetromino;
   const rightTetromino = window.rightTetromino;
@@ -660,57 +710,65 @@ function clearFullLines(scene) {
     });
   }
   function doFade() {
-    flashSprites.forEach(s => scene.tweens.add({
-      targets: s,
-      alpha: 0,
-      duration: 120,
-      onComplete: () => s.destroy()
-    }));
-    for (let row of clearedRows) {
-      for (let x = 0; x < COLS; x++) {
-        if (board[row][x] && board[row][x].sprite) {
-          const color = TETROMINOES[board[row][x].type].color;
-          const px = x * BLOCK_SIZE + BLOCK_SIZE/2;
-          const py = row * BLOCK_SIZE + BLOCK_SIZE/2;
-          const emitter = scene.add.particles(px, py, 'particle', {
-            tint: Phaser.Display.Color.HexStringToColor(color).color,
-            speed: { min: 40, max: 120 },
-            angle: { min: 200, max: 340 },
-            lifespan: 300,
-            quantity: 12,
-            scale: { start: 0.5, end: 0 },
-            alpha: { start: 1, end: 0 },
-            blendMode: 'ADD',
-            gravityY: 200
-          });
-          scene.time.delayedCall(350, () => emitter.destroy());
-        }
-      }
-    }
-    scene.time.delayedCall(140, () => {
-      for (let i = 0; i < clearedRows.length; i++) {
-        // Adjust row index for subsequent splices
-        const rowIndex = clearedRows[i] - i;
-        board.splice(rowIndex, 1);
-        board.unshift(Array(COLS).fill(null));
-      }
-      
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          if (board[y][x] && board[y][x].sprite) {
-            let targetY = y * BLOCK_SIZE + BLOCK_SIZE/2;
-            if (Math.abs(board[y][x].sprite.y - targetY) > 1) {
-               scene.tweens.add({
-                targets: board[y][x].sprite,
-                y: targetY,
-                duration: 160,
-                ease: 'Cubic.Out'
-              });
+    let completedFades = 0;
+    const totalFades = flashSprites.length;
+
+    // This case handles if clearedRows has items, but none had sprites (e.g. pre-existing blocks without sprite refs)
+    // or if flashSprites array ended up empty for some reason despite clearedRows having content.
+    if (totalFades === 0) {
+        if (clearedRows.length > 0) { // Ensure there were rows to clear
+            clearedRows.sort((a, b) => a - b); // Sort from top-most cleared row
+            for (let i = 0; i < clearedRows.length; i++) {
+                const y = clearedRows[i] - i; // Adjust index for previous splices
+                board.splice(y, 1);
+                board.unshift(new Array(COLS).fill(null));
             }
+            // Update Y positions of all remaining sprites on the board after model update
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] && board[r][c].sprite) {
+                        board[r][c].sprite.y = r * BLOCK_SIZE + BLOCK_SIZE / 2;
+                    }
+                }
+            }
+        }
+        paused = false; // Reset the line-clear specific pause
+        return;
+    }
+
+    flashSprites.forEach(sprite => {
+      scene.tweens.add({
+        targets: sprite,
+        alpha: 0,
+        duration: 120,
+        onComplete: () => {
+          if (sprite && typeof sprite.destroy === 'function') {
+            sprite.destroy();
+          }
+          completedFades++;
+          if (completedFades === totalFades) {
+            // All sprites faded and destroyed
+            // Now, update the board model
+            clearedRows.sort((a, b) => a - b); // Sort: process from top-most cleared row
+            for (let i = 0; i < clearedRows.length; i++) {
+              const y = clearedRows[i] - i; // Adjust index for previous splices
+              board.splice(y, 1);
+              board.unshift(new Array(COLS).fill(null));
+            }
+
+            // Update Y positions of all remaining sprites on the board
+            for (let r = 0; r < ROWS; r++) {
+              for (let c = 0; c < COLS; c++) {
+                if (board[r][c] && board[r][c].sprite) {
+                  board[r][c].sprite.y = r * BLOCK_SIZE + BLOCK_SIZE / 2;
+                }
+              }
+            }
+            // console.log("Ambitetris: Line clear animation complete, board updated.");
+            paused = false; // Reset the line-clear specific pause
           }
         }
-      }
-      scene.time.delayedCall(170, () => { paused = false; });
+      });
     });
   }
   doFlash();
