@@ -1,0 +1,73 @@
+/**
+ * Creates a ghost tetromino that mirrors an active tetromino
+ *
+ * @param {Phaser.Scene} scene - The Phaser scene to create sprites in
+ * @param {string} side - Which side ('L' or 'R') this ghost belongs to
+ * @param {Object} activeTetromino - The active tetromino this ghost will mirror
+ * @returns {Object} - The newly created ghost tetromino object
+ */
+function spawnGhostTetromino(scene, side, activeTetromino) {
+  // Safety check for valid active tetromino
+  if (
+    !activeTetromino ||
+    !activeTetromino.type ||
+    !TETROMINOES[activeTetromino.type]
+  ) {
+    return { sprites: [] }; // Return a minimal object to prevent errors
+  }
+
+  // Copy properties from the active tetromino
+  const { type, color, rotation, x, y } = activeTetromino;
+  const shape = TETROMINOES[type].blocks[rotation];
+  const sprites = [];
+
+  // Create ghost sprites at the same position as active tetromino
+  // (updateGhostTetromino will move them to their final position)
+  for (let i = 0; i < 4; i++) {
+    let blockX =
+      BOARD_OFFSET_X + (x + shape[i][0]) * BLOCK_SIZE + BLOCK_SIZE / 2;
+    let blockY = (y + shape[i][1]) * BLOCK_SIZE + BLOCK_SIZE / 2;
+
+    // Use pre-generated textures (same as active, but will be tinted)
+    const textureKey = getBlockTextureKey(side, type, rotation, i);
+
+    if (!scene.textures.exists(textureKey)) {
+      console.error(
+        `Error: Ghost texture ${textureKey} not found! This should never happen with pre-generated textures.`,
+      );
+    }
+
+    // Create white outline sprite
+    const outlineSprite = scene.add.sprite(blockX, blockY, textureKey);
+    outlineSprite.setDepth(0); // Below active pieces
+    outlineSprite.setScale(1.15); // Slightly larger to create outline effect
+    outlineSprite.setTintFill(0xffffff); // White outline
+    outlineSprite.setAlpha(0.3); // Semi-transparent
+    
+    // Create main ghost sprite
+    const mainSprite = scene.add.sprite(blockX, blockY, textureKey);
+    mainSprite.setDepth(0.1); // Above the outline but below active pieces
+    mainSprite.setAlpha(0.3); // Semi-transparent
+    mainSprite.setTintFill(0x808080); // Gray tint for all ghosts
+    
+    // Store both sprites together
+    sprites.push({
+      outline: outlineSprite,
+      main: mainSprite
+    });
+  }
+
+  // Return the ghost tetromino object
+  return {
+    type,
+    color,
+    rotation,
+    x,
+    y,
+    blocks: shape,
+    sprites,
+    side,
+    scene,
+    isGhost: true // Flag to identify as ghost tetromino
+  };
+}
