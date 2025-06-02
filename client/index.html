@@ -1,22 +1,259 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <head>
-    <title>Ambitetris</title>
-    <style>canvas { display: block; margin: auto; }</style>
-  </head>
-  <body style="background-color: #010101">
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
-    <script src="ambitetris.js"></script>
-    <script>
-      const config = {
-        type: Phaser.AUTO,
-        width: 448, // 14 blocks wide * 32
-        height: 640,
-        backgroundColor: "#111",
-        scene: { create, update }
-      };
+    <head>
+        <title>Ambitetris</title>
+        <style>
+            canvas {
+                display: block;
+                margin: auto;
+            }
+            body {
+                font-family: "Arial", sans-serif;
+                background-color: #010101;
+                margin: 0;
+                padding: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+        <script src="ambitetris.js"></script>
+        <script>
+            // Game states
+            let gameState = "title"; // Can be "title" or "playing"
 
-      const game = new Phaser.Game(config);
-    </script>
-  </body>
+            // TitleScene: displays the title screen
+            class TitleScene extends Phaser.Scene {
+              constructor() {
+                super({ key: 'TitleScene' });
+              }
+
+              create() {
+                const { width, height } = this.scale;
+
+                // Create background pattern
+                const gridSize = 32;
+                for (let x = 0; x < width; x += gridSize) {
+                  for (let y = 0; y < height; y += gridSize) {
+                    this.add.rectangle(x, y, gridSize, gridSize).setStrokeStyle(1, 0x222222);
+                  }
+                }
+
+                // Add title with shadow
+                const titleShadow = this.add.text(width / 2 + 3, height / 4 + 3, 'AMBITETRIS', {
+                  fontFamily: 'Arial',
+                  fontSize: '48px',
+                  color: '#222222',
+                  fontStyle: 'bold'
+                }).setOrigin(0.5);
+
+                const title = this.add.text(width / 2, height / 4, 'AMBITETRIS', {
+                  fontFamily: 'Arial',
+                  fontSize: '48px',
+                  color: '#ffffff',
+                  fontStyle: 'bold'
+                }).setOrigin(0.5);
+
+                // Add gradient effect to title
+                this.tweens.add({
+                  targets: title,
+                  alpha: { from: 1, to: 0.8 },
+                  duration: 1500,
+                  yoyo: true,
+                  repeat: -1
+                });
+
+                // Add subtitle
+                this.add.text(width / 2, height / 4 + 60, 'Control two tetrominoes at once', {
+                  fontFamily: 'Arial',
+                  fontSize: '20px',
+                  color: '#dddddd'
+                }).setOrigin(0.5);
+
+                // Create a container for left controls
+                const leftControlsContainer = this.add.container(width / 4, height / 2 + 30);
+
+                // Left controls title with color matching the left tetromino
+                const leftTitle = this.add.text(0, 0, 'Left Tetromino', {
+                  fontFamily: 'Arial',
+                  fontSize: '18px',
+                  color: '#08ffff',
+                  fontStyle: 'bold'
+                }).setOrigin(0.5);
+                leftControlsContainer.add(leftTitle);
+
+                // Left controls list
+                const leftControls = [
+                  'C - Move Left',
+                  'B - Move Right',
+                  'V - Move Down',
+                  'G - Rotate'
+                ];
+
+                let yOffset = 30;
+                leftControls.forEach(control => {
+                  const text = this.add.text(0, yOffset, control, {
+                    fontFamily: 'Arial',
+                    fontSize: '16px',
+                    color: '#ffffff'
+                  }).setOrigin(0.5);
+                  leftControlsContainer.add(text);
+                  yOffset += 25;
+                });
+
+                // Create a container for right controls
+                const rightControlsContainer = this.add.container(width * 3/4, height / 2 + 30);
+
+                // Right controls title with color matching the right tetromino
+                const rightTitle = this.add.text(0, 0, 'Right Tetromino', {
+                  fontFamily: 'Arial',
+                  fontSize: '18px',
+                  color: '#ff9800',
+                  fontStyle: 'bold'
+                }).setOrigin(0.5);
+                rightControlsContainer.add(rightTitle);
+
+                // Right controls list
+                const rightControls = [
+                  'J - Move Left',
+                  'L - Move Right',
+                  'K - Move Down',
+                  'I - Rotate'
+                ];
+
+                yOffset = 30;
+                rightControls.forEach(control => {
+                  const text = this.add.text(0, yOffset, control, {
+                    fontFamily: 'Arial',
+                    fontSize: '16px',
+                    color: '#ffffff'
+                  }).setOrigin(0.5);
+                  rightControlsContainer.add(text);
+                  yOffset += 25;
+                });
+
+                // General controls
+                this.add.text(width / 2, height / 2 + 160, 'SPACE - Pause Game', {
+                  fontFamily: 'Arial',
+                  fontSize: '16px',
+                  color: '#ffffff',
+                  align: 'center'
+                }).setOrigin(0.5);
+
+                // Add start button with a gradient background
+                const startButtonBackground = this.add.graphics();
+                startButtonBackground.fillGradientStyle(
+                  0x333333, 0x333333,
+                  0x222222, 0x222222,
+                  1
+                );
+                startButtonBackground.fillRect(width/2 - 120, height * 0.85 - 25, 240, 50);
+                startButtonBackground.setInteractive(new Phaser.Geom.Rectangle(width/2 - 120, height * 0.85 - 25, 240, 50),
+                  Phaser.Geom.Rectangle.Contains)
+                  .on('pointerdown', () => {
+                    gameState = "playing";
+                    this.scene.start('GameScene');
+                  });
+
+                const startButton = this.add.text(width / 2, height * 0.85, 'CLICK TO START', {
+                  fontFamily: 'Arial',
+                  fontSize: '24px',
+                  color: '#ffffff',
+                  fontStyle: 'bold'
+                }).setOrigin(0.5)
+                  .setInteractive({ useHandCursor: true })
+                  .on('pointerdown', () => {
+                    gameState = "playing";
+                    this.scene.start('GameScene');
+                  });
+
+                // Create a pulsating effect for the start button
+                this.tweens.add({
+                  targets: startButton,
+                  scale: { from: 1, to: 1.1 },
+                  duration: 800,
+                  yoyo: true,
+                  repeat: -1
+                });
+
+                // Add falling tetromino animations in the background
+                this.time.addEvent({
+                  delay: 2000,
+                  callback: this.spawnRandomTetromino,
+                  callbackScope: this,
+                  loop: true
+                });
+
+              },
+
+              spawnRandomTetromino: function() {
+                const tetrominoTypes = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
+                const type = tetrominoTypes[Math.floor(Math.random() * tetrominoTypes.length)];
+
+                let color;
+                switch(type) {
+                  case 'I': color = 0x08ffff; break;
+                  case 'J': color = 0x0000f9; break;
+                  case 'L': color = 0xff9800; break;
+                  case 'O': color = 0xffff00; break;
+                  case 'T': color = 0xa000f9; break;
+                  case 'S': color = 0xff0000; break;
+                  case 'Z': color = 0x00c000; break;
+                }
+
+                const x = Math.random() * this.scale.width;
+                const tetromino = this.add.rectangle(x, -30, 20, 20, color, 0.7).setAlpha(0.5);
+
+                this.tweens.add({
+                  targets: tetromino,
+                  y: this.scale.height + 50,
+                  duration: 5000 + Math.random() * 5000,
+                  onComplete: () => tetromino.destroy()
+                });
+              }
+            }
+
+            // GameScene: the actual game
+            class GameScene extends Phaser.Scene {
+              constructor() {
+                super({ key: 'GameScene' });
+              }
+
+              create() {
+                // Call the original create function (renamed to gameCreate)
+                gameCreate.apply(this);
+              }
+
+              update(time, delta) {
+                // Call the original update function
+                gameUpdate.apply(this, [time, delta]);
+              }
+            }
+
+            // Rename original functions to avoid conflicts
+            const gameCreate = create;
+            const gameUpdate = update;
+
+            // Override global create/update to be empty
+            // (our scenes will call the originals)
+            function create() {}
+            function update() {}
+
+            // Game over function
+            window.gameOver = function() {
+              gameState = "title";
+              game.scene.start('TitleScene');
+            };
+
+            const config = {
+              type: Phaser.AUTO,
+              width: 448, // 14 blocks wide * 32
+              height: 640,
+              backgroundColor: "#111",
+              scene: [TitleScene, GameScene]
+            };
+
+            const game = new Phaser.Game(config);
+        </script>
+    </body>
 </html>

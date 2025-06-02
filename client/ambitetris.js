@@ -1,11 +1,7 @@
 const BLOCK_SIZE = 32;
 const ROWS = 20,
   COLS = 14;
-const CORNER_RADIUS = 16; // Adjust as needed for visual appeal
-const BOARD_OFFSET_X = 5 * BLOCK_SIZE; // Horizontal offset to center the board
-const LEFT_PREVIEW_X = -4; // Grid position for left preview tetromino
-const RIGHT_PREVIEW_X = COLS + 1; // Grid position for right preview tetromino
-const PREVIEW_Y = 3; // Vertical grid position for preview tetrominoes
+const CORNER_RADIUS = 14; // Adjust as needed for visual appeal
 const TETROMINOES = {
   I: {
     color: "#08ffff", // light blue
@@ -239,34 +235,19 @@ function getCornerRadiiConfig(shape, currentBlockLocalPos, cornerRadius) {
   return radii;
 }
 
-// Block texture key format: 'block_[L|R|GL|GR]_[type]_[rotation]_[blockIndex]'
+// Block texture key format: 'block_[L|R]_[type]_[rotation]_[blockIndex]'
 // Example: 'block_L_I_0_2' for left-side I tetromino, rotation 0, block index 2
 
 // This function will be called during initialization to pre-generate all textures
-/**
- * Generates all possible block textures for both left and right tetrominoes
- *
- * This function pre-generates all variations of block textures so they can
- * be retrieved quickly during game play. It significantly improves
- * performance compared to generating them dynamically at runtime.
- *
- * @param {Phaser.Scene} scene - The active Phaser scene
- */
 function preGenerateAllBlockTextures(scene) {
   // Clear any existing textures first
   Object.keys(TETROMINOES).forEach((type) => {
-    for(let rotation = 0; rotation < 4; rotation++) {
+    for (let rotation = 0; rotation < 4; rotation++) {
       for (let blockIndex = 0; blockIndex < 4; blockIndex++) {
         const leftKey = `block_L_${type}_${rotation}_${blockIndex}`;
         const rightKey = `block_R_${type}_${rotation}_${blockIndex}`;
-        const leftGhostKey = `block_GL_${type}_${rotation}_${blockIndex}`;
-        const rightGhostKey = `block_GR_${type}_${rotation}_${blockIndex}`;
         if (scene.textures.exists(leftKey)) scene.textures.remove(leftKey);
         if (scene.textures.exists(rightKey)) scene.textures.remove(rightKey);
-        if (scene.textures.exists(leftGhostKey))
-          scene.textures.remove(leftGhostKey);
-        if (scene.textures.exists(rightGhostKey))
-          scene.textures.remove(rightGhostKey);
       }
     }
   });
@@ -293,21 +274,22 @@ function preGenerateAllBlockTextures(scene) {
         const gfxL = scene.add.graphics();
         gfxL.fillStyle(Phaser.Display.Color.HexStringToColor(color).color, 1);
         gfxL.fillRoundedRect(0, 0, BLOCK_SIZE, BLOCK_SIZE, radii);
-        gfxL.lineStyle(1, 0x333333, 0.5);
-        gfxL.strokeRoundedRect(0, 0, BLOCK_SIZE, BLOCK_SIZE, radii);
+        gfxL.lineStyle(1, 0x333333, 0.8);
+        gfxL.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
+        gfxL.fillStyle(Phaser.Display.Color.BLACK, 0.15);
+
+        const FOO = 6;
+
+        gfxL.fillRoundedRect(
+          FOO,
+          FOO,
+          BLOCK_SIZE - FOO * 2,
+          BLOCK_SIZE - FOO * 2,
+          radii,
+        );
+
         gfxL.generateTexture(leftKey, BLOCK_SIZE, BLOCK_SIZE);
         gfxL.destroy();
-
-        // LEFT SIDE - GHOST STYLE
-        const leftGhostKey = `block_GL_${type}_${rotation}_${blockIndex}`;
-        const gfxGL = scene.add.graphics();
-        gfxGL.fillStyle(
-          Phaser.Display.Color.HexStringToColor(color).color,
-          0.3,
-        ); // Semi-transparent color
-        gfxGL.fillRoundedRect(0, 0, BLOCK_SIZE, BLOCK_SIZE, radii);
-        gfxGL.generateTexture(leftGhostKey, BLOCK_SIZE, BLOCK_SIZE);
-        gfxGL.destroy();
 
         // RIGHT SIDE - BEVELED STYLE
         const rightKey = `block_R_${type}_${rotation}_${blockIndex}`;
@@ -342,17 +324,6 @@ function preGenerateAllBlockTextures(scene) {
         gfxR.strokeRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
         gfxR.generateTexture(rightKey, BLOCK_SIZE, BLOCK_SIZE);
         gfxR.destroy();
-
-        // RIGHT SIDE - GHOST STYLE
-        const rightGhostKey = `block_GR_${type}_${rotation}_${blockIndex}`;
-        const gfxGR = scene.add.graphics();
-        gfxGR.fillStyle(
-          Phaser.Display.Color.HexStringToColor(color).color,
-          0.3,
-        ); // Semi-transparent color
-        gfxGR.fillRect(0, 0, BLOCK_SIZE, BLOCK_SIZE);
-        gfxGR.generateTexture(rightGhostKey, BLOCK_SIZE, BLOCK_SIZE);
-        gfxGR.destroy();
       }
     }
   });
@@ -360,15 +331,7 @@ function preGenerateAllBlockTextures(scene) {
   console.log("Pre-generated all tetromino block textures");
 }
 
-/**
- * Helper function to get the appropriate texture key for a tetromino block
- *
- * @param {string} side - Which side the block is on ('L', 'R', 'GL', 'GR')
- * @param {string} type - The type of tetromino
- * @param {number} rotation - The rotation state of the tetromino
- * @param {number} blockIndex - The index of the block within the tetromino
- * @returns {string} - The texture key
- */
+// Helper function to get the appropriate texture key for a tetromino block
 function getBlockTextureKey(side, type, rotation, blockIndex) {
   return `block_${side}_${type}_${rotation}_${blockIndex}`;
 }
@@ -594,8 +557,12 @@ function moveDown(tetromino, side) {
         currentLeft,
       )
     ) {
-      alert("Game Over!");
-      location.reload();
+      if (window.gameOver) {
+        window.gameOver();
+      } else {
+        alert("Game Over!");
+        location.reload();
+      }
       return;
     }
   }
@@ -633,10 +600,10 @@ function lockBothTetrominoes(t1, t2) {
       }
     }
   });
-  clearFullLines(t1.scene || t2.scene);
+  clearFullLines(t1.scene || t2.scene || window.gameScene);
 
   // Destroy old ghost sprites
-  const scene = t1.scene || t2.scene; // Get scene context
+  const scene = window.gameScene || t1.scene || t2.scene; // Get scene context
 
   if (window.leftGhostTetromino && window.leftGhostTetromino.sprites) {
     window.leftGhostTetromino.sprites.forEach((s) => {
@@ -650,19 +617,23 @@ function lockBothTetrominoes(t1, t2) {
     });
   }
 
-  let newLeft = spawnTetromino(t1.scene || t2.scene, "L");
-  let newRight = spawnTetromino(t1.scene || t2.scene, "R");
+  let newLeft = spawnTetromino(scene, "L");
+  let newRight = spawnTetromino(scene, "R");
   window.leftTetromino = newLeft;
   window.rightTetromino = newRight;
 
+  // Add scene reference to new tetrominoes
+  newLeft.scene = scene;
+  newRight.scene = scene;
+
   // Spawn new ghost tetrominoes
   window.leftGhostTetromino = spawnGhostTetromino(
-    t1.scene || t2.scene,
+    window.gameScene || t1.scene || t2.scene,
     "L",
     window.leftTetromino,
   );
   window.rightGhostTetromino = spawnGhostTetromino(
-    t2.scene || t2.scene,
+    window.gameScene || t1.scene || t2.scene,
     "R",
     window.rightTetromino,
   );
@@ -671,8 +642,12 @@ function lockBothTetrominoes(t1, t2) {
     !canPlace(newLeft, newLeft.x, newLeft.y, newLeft.rotation, newRight) ||
     !canPlace(newRight, newRight.x, newRight.y, newRight.rotation, newLeft)
   ) {
-    alert("Game Over!");
-    location.reload();
+    if (window.gameOver) {
+      window.gameOver();
+    } else {
+      alert("Game Over!");
+      location.reload();
+    }
   }
 }
 
@@ -696,6 +671,17 @@ function updateTetrominoSprites(tetromino, isGhost = false) {
       if (isGhost) {
         tetromino.sprites[i].setAlpha(0.3);
         tetromino.sprites[i].setDepth(0);
+
+        // Update texture for ghost tetromino to match current rotation
+        const textureKey = getBlockTextureKey(
+          tetromino.side,
+          tetromino.type,
+          tetromino.rotation,
+          i,
+        );
+        if (tetromino.scene && tetromino.scene.textures.exists(textureKey)) {
+          tetromino.sprites[i].setTexture(textureKey);
+        }
       } else {
         tetromino.sprites[i].setAlpha(1);
         tetromino.sprites[i].setDepth(1);
@@ -906,43 +892,35 @@ function spawnTetromino(scene, side) {
     blocks: shape,
     sprites,
     side,
-    scene,
+    scene, // Store scene reference with consistent property name
   };
 }
 
 // --- Ghost Piece Functions ---
-/**
- * Creates a ghost tetromino that mirrors an active tetromino
- *
- * @param {Phaser.Scene} scene - The Phaser scene to create sprites in
- * @param {string} side - Which side ('L' or 'R') this ghost belongs to
- * @param {Object} activeTetromino - The active tetromino this ghost will mirror
- * @returns {Object} - The newly created ghost tetromino object
- */
 function spawnGhostTetromino(scene, side, activeTetromino) {
-  // Safety check for valid active tetromino
   if (
     !activeTetromino ||
     !activeTetromino.type ||
     !TETROMINOES[activeTetromino.type]
   ) {
+    // console.error("Cannot spawn ghost: active tetromino is invalid", activeTetromino);
     return { sprites: [] }; // Return a minimal object to prevent errors
   }
-
-  // Copy properties from the active tetromino
-  const { type, rotation, x, y } = activeTetromino;
+  const { type, color, rotation, x, y } = activeTetromino;
   const shape = TETROMINOES[type].blocks[rotation];
   const sprites = [];
 
-  // Create ghost sprites at the same position as active tetromino
-  // (updateGhostTetromino will move them to their final position)
   for (let i = 0; i < 4; i++) {
-    const blockX =
-      BOARD_OFFSET_X + (x + shape[i][0]) * BLOCK_SIZE + BLOCK_SIZE / 2;
-    const blockY = (y + shape[i][1]) * BLOCK_SIZE + BLOCK_SIZE / 2;
+    let blockX = (x + shape[i][0]) * BLOCK_SIZE + BLOCK_SIZE / 2;
+    let blockY = (y + shape[i][1]) * BLOCK_SIZE + BLOCK_SIZE / 2;
 
-    const ghostSide = side === "L" ? "GL" : "GR"; // Use 'GL' or 'GR' for ghost textures
-    const textureKey = getBlockTextureKey(ghostSide, type, rotation, i);
+    // Use pre-generated textures with the active tetromino's side to maintain consistent corner styling
+    const textureKey = getBlockTextureKey(
+      activeTetromino.side,
+      type,
+      rotation,
+      i,
+    );
 
     if (!scene.textures.exists(textureKey)) {
       console.error(
@@ -951,13 +929,14 @@ function spawnGhostTetromino(scene, side, activeTetromino) {
     }
 
     const sprite = scene.add.sprite(blockX, blockY, textureKey);
-    sprite.setDepth(0); // Below active pieces
+    sprite.setDepth(0);
+    sprite.setAlpha(0.3); // Standard ghost alpha
+    sprite.setTintFill(0x808080); // Set ALL ghosts to gray
     sprites.push(sprite);
   }
-
-  // Return the ghost tetromino object
   return {
     type,
+    color,
     rotation,
     x,
     y,
@@ -965,7 +944,6 @@ function spawnGhostTetromino(scene, side, activeTetromino) {
     sprites,
     side,
     scene,
-    isGhost: true, // Flag to identify as ghost tetromino
   };
 }
 
@@ -979,6 +957,7 @@ function updateGhostTetromino(tetromino, ghostTetromino, otherTetromino) {
   )
     return;
 
+  // Always update properties
   ghostTetromino.x = tetromino.x;
   ghostTetromino.rotation = tetromino.rotation;
   ghostTetromino.type = tetromino.type;
@@ -1027,6 +1006,16 @@ let paused = false;
 let userPaused = false;
 
 function create() {
+  // Initialize/reset game state
+  board = Array(ROWS).fill().map(() => Array(COLS).fill(null));
+  dropTimerLeft = 0;
+  dropTimerRight = 0;
+  lastLockTime = 0;
+  lastLockRow = 0;
+  ambiClearRows = [];
+  paused = false;
+  userPaused = false;
+  
   // Pre-generate all tetromino block textures
   preGenerateAllBlockTextures(this);
 
@@ -1083,10 +1072,17 @@ function create() {
     // If pausing, maybe visually indicate pause on screen if desired later
   });
 
+  // Store scene reference for use in other functions
+  window.gameScene = this;
+
   leftTetromino = spawnTetromino(this, "L");
   rightTetromino = spawnTetromino(this, "R");
   window.leftTetromino = leftTetromino;
   window.rightTetromino = rightTetromino;
+
+  // Store scene reference in tetrominoes for easy access
+  leftTetromino.scene = this;
+  rightTetromino.scene = this;
 
   // Spawn ghost tetrominoes after active ones
   leftGhostTetromino = spawnGhostTetromino(this, "L", leftTetromino);
@@ -1094,6 +1090,8 @@ function create() {
   window.leftGhostTetromino = leftGhostTetromino;
   window.rightGhostTetromino = rightGhostTetromino;
 }
+
+// Not needed anymore - we'll use a different approach
 
 function update(time, delta) {
   if (userPaused) return;
@@ -1166,6 +1164,18 @@ function handleInput(scene, delta) {
   if (cursorsLeft.rotate.isDown) {
     rotateTetromino(leftTetromino);
     cursorsLeft.rotate.reset();
+
+    // Recreate left ghost tetromino with updated rotation
+    if (window.leftGhostTetromino && window.leftGhostTetromino.sprites) {
+      window.leftGhostTetromino.sprites.forEach((s) => {
+        if (s && s.destroy) s.destroy();
+      });
+    }
+    window.leftGhostTetromino = spawnGhostTetromino(
+      window.gameScene || scene,
+      "L",
+      window.leftTetromino,
+    );
   }
 
   if (cursorsRight.left.isDown) {
@@ -1199,6 +1209,18 @@ function handleInput(scene, delta) {
   if (cursorsRight.rotate.isDown) {
     rotateTetromino(rightTetromino);
     cursorsRight.rotate.reset();
+
+    // Recreate right ghost tetromino with updated rotation
+    if (window.rightGhostTetromino && window.rightGhostTetromino.sprites) {
+      window.rightGhostTetromino.sprites.forEach((s) => {
+        if (s && s.destroy) s.destroy();
+      });
+    }
+    window.rightGhostTetromino = spawnGhostTetromino(
+      window.gameScene || scene,
+      "R",
+      window.rightTetromino,
+    );
   }
 }
 
